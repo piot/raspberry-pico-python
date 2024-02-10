@@ -36,15 +36,7 @@ class Button:
         a = self.pin.value()
         return not a # it is inverted
         
-class GamePhase:
-    def tick(self, button: Button) -> Bool:
-        raise NotImplementedError("must be defined by GamePhases")
-    
-    
-        
-class MainMenu(GamePhase):
-    def tick(self, button: Button):
-        return button.is_pressed()
+
 
 
 SCREEN_WIDTH = 128
@@ -72,11 +64,36 @@ class Rating():
         }
         return rating_map.get(rating_value, str(rating_value))
  
-    
+class GamePhase:
+    def tick(self, button: Button) -> Bool:
+        raise NotImplementedError("must be defined by GamePhases")
+
+
+class MainMenu(GamePhase):
+    def __init__(self):
+        self.was_pressed = True
+        
+    def tick(self, button: Button):
+        is_pressed = button.is_pressed()
+        if is_pressed and not self.was_pressed:
+            return True
+        self.was_pressed = is_pressed
+
+
+class CountDown(GamePhase):
+    def __init__(self, count_down: int):
+        self.count_down = count_down
+        
+    def tick(self, button: Button):
+        if self.count_down == 0:
+            return True
+        
+        self.count_down -= 1    
+
 
 class InGame(GamePhase):
     def __init__(self):
-        self.button_was_down_last_tick: bool = False
+        self.button_was_down_last_tick: bool = True
         self.direction_x: int = 1
         self.direction_y: int = 1
         self.speed: int = 2
@@ -90,10 +107,11 @@ class InGame(GamePhase):
         self.tick_count: int = 0
         self.ball_bounce_count: int = 0
         self.last_rating: Rating = Rating.OK
-        self.last_points_given: int = 0
-        self.points: int = 0
+        self.last_bonus_given: int = 0
+        self.score: int = 0
         self.rating_direction: int = 1
         self.rating_count: int = 0
+        self.ticks_left: int = TICKS_PER_SECOND * 5
 
 
     def check_bounce_against_walls(self) -> None:
@@ -139,9 +157,9 @@ class InGame(GamePhase):
 
     def rate_button_press(self) -> None:
         wall_distance = self.distance_to_cloest_wall()
-        points = 50 - wall_distance
-        self.last_points_given = points
-        self.points += points
+        score = 50 - wall_distance
+        self.last_bonus_given = score
+        self.score += score
         self.last_rating = InGame.rating_from_distance_to_wall(wall_distance)
         self.rating_count += 1
         self.rating_direction = -1 if self.x <= MIDDLE_X else 1
@@ -171,6 +189,9 @@ class InGame(GamePhase):
 
     def tick(self, button: Button):
         self.tick_count += 1
+        if self.ticks_left == 0:
+            return True
+        self.ticks_left -= 1
         
         self.check_bounce_against_walls()
         self.check_if_allowed_to_be_rated_again()
@@ -178,16 +199,20 @@ class InGame(GamePhase):
         self.check_if_button_is_pressed()
 
 
-class CountDown(GamePhase):
-    def __init__(self, count_down: int):
-        self.count_down = count_down
-        
+class GameOver(GamePhase):
+    def __init__(self, score: int):
+        self.score = score
+        self.was_pressed = True
+        self.ticks_left: int = TICKS_PER_SECOND * 2
+    
     def tick(self, button: Button):
-        if self.count_down == 0:
-            return True
-        
-        self.count_down -= 1
-
+        if self.ticks_left == 0:
+            is_pressed = button.is_pressed()
+            if is_pressed and not self.was_pressed:
+                return True
+            self.was_pressed = is_pressed
+        else:
+            self.ticks_left -= 1
 
 class Game:
     def __init__(self):
@@ -202,6 +227,8 @@ class Game:
         elif isinstance(phase, CountDown):
             return InGame()
         elif isinstance(phase, InGame):
+            return GameOver(phase.score)
+        elif isinstance(phase, GameOver):
             return MainMenu()
         else:
             return "Unknown type"
@@ -225,12 +252,18 @@ class Render:
         self.display.text('Get Ready!', 0, 32, 1)
         self.display.text(str(ticks_to_seconds(count_down.count_down)), 0, 48, 1)
     
-    def render_rating(self, rating: Rating, points_given: int):
+    def render_rating(self, rating: Rating, score_given: int):
         self.display.text(Rating.str_value(rating), 0, 15, 1)
-        self.display.text("bonus:" + str(points_given), 0, 32, 1)
+        self.display.text("bonus:" + str(score_given), 14, 32, 1)
         
-    def render_score(self, points_total: int) -> None:
-        self.display.text("total:" + str(points_total), 0, 48, 1)
+    def render_score(self, score: int) -> None:
+        self.display.text("Score " + str(score), 20, 48, 1)
+        
+    def render_game_over(self, game_over: GameOver) -> None:
+        self.display.text("GAME OVER", 40, 0, 1)
+        self.display.text("Final Score " + str(game_over.score), 5, 20, 1)
+        if game_over.ticks_left == 0:
+            self.display.text("press button", 5, 48, 1)
 
     def render_ingame(self, ingame: InGame):
         #self.display.text('Hello World!', 128 - ingame.x, 32, 1)
@@ -240,8 +273,8 @@ class Render:
             
         if self.show_rating_timer > 0:
             self.show_rating_timer -= 1
-            self.render_rating(ingame.last_rating, ingame.last_points_given)
-        self.render_score(ingame.points)
+            self.render_rating(ingame.last_rating, ingame.last_bonus_given)
+        self.render_score(ingame.score)
         
         self.display.vline(0, 0, 64, 1)
         self.display.vline(127, 0, 64, 1)
@@ -256,6 +289,8 @@ class Render:
             self.render_count_down(phase)
         elif isinstance(phase, InGame):
             self.render_ingame(phase)
+        elif isinstance(phase, GameOver):
+            self.render_game_over(phase)
         self.display.show()
 
 
