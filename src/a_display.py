@@ -43,63 +43,6 @@ BALL_SIZE = 8
 WALL_SIZE = 1
 MIDDLE_X = 64
 
-class NoteAndDuration:
-    def __init__(self, note, duration: int):
-        self.note = note
-        self.duration = duration
-
-class TonePlayer:
-    def __init__(self, speaker: Speaker):
-        self.time: int = 0
-        self.index: int = 0
-        self.speaker = speaker
-        
-    @staticmethod
-    def note_to_frequency(note) -> int:
-        notes = {'C': -9, 'C#': -8, 'D': -7, 'D#': -6, 'E': -5, 'F': -4, 'F#': -3, 'G': -2, 'G#': -1, 'A': 0, 'A#': 1, 'B': 2}
-        octave = int(note[-1])
-        note_name = note[:-1]
-        half_steps = (octave - 4) * 12 + notes[note_name]
-        return round(440 * 2 ** (half_steps / 12))
-    
-    def play(self, notes_and_duration: List[NoteAndDuration]):
-        self.notes_and_duration = notes_and_duration
-        self.time = 0
-        self.index = 0
-        
-    def tick(self):
-        if self.current_note is not None:
-            self.time += 1
-            if self.time > self.current_note.duration * 8:
-                self.current_note = None
-                self.pause_between_notes = 2
-            else:
-                self.index += 1
-        else:
-            if self.pause_between_notes != 0:
-                self.pause_between_notes -= 1
-            else:
-                if self.index >= len(self.notes_and_duration):
-                    self.index = -1
-                else:
-                    self.current_note, self.current_duration = self.notes_and_duration[self.index]
-                    print("playing note:", self.current_note, "duration", duration)
-                    frequency = TonePlayer.note_to_frequency(self.current_note)
-                    self.speaker.play(frequency)
-                    self.index+= 1
-                    self.time = 0
-                
-                
-class Speaker:
-    def __init__(self, speaker_pin: Pin):
-        self.speaker_pwm = PWM(speaker_pin)
-        self.speaker_pwm.freq(300)
-        self.speaker_pwm.duty_u16(100) # very low volume
-        
-    def play(frequency: int):
-        self.speaker_pwm.freq(frequency)
-
-
 class RGBLed:
     def __init__(self, red: Pin, green: Pin, blue: Pin):
         self.red_pwm = RGBLed.setup_pwm(red)
@@ -442,35 +385,23 @@ def initialize_display() -> SH1106_I2C:
     return display
 
 
-# All pins used on the board
+# All pins used on the board. I2C is for the display
 i2c_sda_pin = Pin(2)
 i2c_scl_pin = Pin(3)
 rgb_led_red_pin = Pin(12)
 rgb_led_green_pin = Pin(11)
 rgb_led_blue_pin = Pin(10)
 button_pin = Pin(13, Pin.IN, Pin.PULL_UP)
-#speaker_pin = Pin(15)
-
 # --------------------------
 
-i2c: I2C = initialize_i2c(i2c_sda_pin, i2c_scl_pin)
-
-display: SH1106_I2C = initialize_display()
-
+i2c = initialize_i2c(i2c_sda_pin, i2c_scl_pin)
+display = initialize_display()
 button = Button(button_pin)
-
 rgb_led = RGBLed(rgb_led_red_pin, rgb_led_green_pin, rgb_led_blue_pin)
 
-scan(i2c)
-
-game: Game = Game()
-render: Render = Render(display, rgb_led)
-
-notes_and_durations = [
-    ('C4', 4),
-    ('E4', 2),
-    ('G4', 2),
-]
+# scan(i2c)
+game = Game()
+render = Render(display, rgb_led)
 
 while not game.is_over:
     game.tick(button)
