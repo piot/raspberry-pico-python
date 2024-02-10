@@ -36,9 +36,6 @@ class Button:
         a = self.pin.value()
         return not a # it is inverted
         
-
-
-
 SCREEN_WIDTH = 128
 SCREEN_HEIGHT = 64
 BALL_SIZE = 8
@@ -223,7 +220,7 @@ class Game:
     def switch_phase(self) -> GamePhase:
         phase: GamePhase = self.phase
         if isinstance(phase, MainMenu):
-            return CountDown(10)
+            return CountDown(TICKS_PER_SECOND*3)
         elif isinstance(phase, CountDown):
             return InGame()
         elif isinstance(phase, InGame):
@@ -237,35 +234,32 @@ class Game:
         is_done: Bool = self.phase.tick(button)
         if is_done:
             self.phase = self.switch_phase()
-            
-                
-class Render:
+           
+
+class RenderPhase:
+    def __init__(self, display: SH1106_I2C):
+        self.display = display
+        
+    def tick(self, button: Button) -> Bool:
+        raise NotImplementedError("must be defined by GamePhases")
+
+class RenderInGame(RenderPhase):
     def __init__(self, display: SH1106_I2C):
         self.display = display
         self.last_shown_rating_count: int = 0
         self.show_rating_timer: int = 0
         
-    def render_main_menu(self, main: MainMenu):
-        self.display.text('Main Menu', 0, 32, 1)
-        
-    def render_count_down(self, count_down: CountDown):
-        self.display.text('Get Ready!', 0, 32, 1)
-        self.display.text(str(ticks_to_seconds(count_down.count_down)), 0, 48, 1)
-    
     def render_rating(self, rating: Rating, score_given: int):
-        self.display.text(Rating.str_value(rating), 0, 15, 1)
-        self.display.text("bonus:" + str(score_given), 14, 32, 1)
+        self.display.text(Rating.str_value(rating), 0, 5, 1)
+        self.display.text("bonus:" + str(score_given), 14, 22, 1)
         
     def render_score(self, score: int) -> None:
-        self.display.text("Score " + str(score), 20, 48, 1)
+        self.display.text("Score " + str(score), 30, 48, 1)
         
-    def render_game_over(self, game_over: GameOver) -> None:
-        self.display.text("GAME OVER", 40, 0, 1)
-        self.display.text("Final Score " + str(game_over.score), 5, 20, 1)
-        if game_over.ticks_left == 0:
-            self.display.text("press button", 5, 48, 1)
-
-    def render_ingame(self, ingame: InGame):
+    def render_ticks_left(self, ticks: int) -> None:
+        self.display.text("Time Left " + str(ticks), 10, 38, 1)
+        
+    def render(self, ingame: InGame):
         #self.display.text('Hello World!', 128 - ingame.x, 32, 1)
         if self.last_shown_rating_count != ingame.rating_count:
             self.show_rating_timer = TICKS_PER_SECOND * 0.5
@@ -276,21 +270,50 @@ class Render:
             self.render_rating(ingame.last_rating, ingame.last_bonus_given)
         self.render_score(ingame.score)
         
+        if ingame.ticks_left < 100:
+            self.render_ticks_left(ingame.ticks_left)
+        
         self.display.vline(0, 0, 64, 1)
         self.display.vline(127, 0, 64, 1)
         self.display.fill_rect(ingame.x, ingame.y, BALL_SIZE, BALL_SIZE, 1)
         
+
+class RenderMainMenu(RenderPhase):
+    def render(self, main: MainMenu):
+        self.display.text("Main Menu", 30, 0, 1)
+        self.display.text("press button", 12, 52, 1)
+        
+class RenderGameOver(RenderPhase):
+    def render(self, game_over: GameOver) -> None:
+        self.display.text("GAME OVER", 30, 20, 1)
+        self.display.text("Score " + str(game_over.score), 32, 34, 1)
+        if game_over.ticks_left == 0:
+            self.display.text("press button", 12, 52, 1)
+            
+class RenderCountDown(RenderPhase):
+    def render(self, count_down: CountDown):
+        self.display.text('Get Ready!', 20, 12, 1)
+        self.display.text(str(ticks_to_seconds(count_down.count_down)), 60, 35, 1)
+
+class Render:
+    def __init__(self, display: SH1106_I2C):
+        self.display = display
+        self.phase: RenderPhase = None
+        
+    def switch_render_phase_if_needed(self, phase: GamePhase):
+        if isinstance(phase, MainMenu) and not isinstance(self.phase, RenderMainMenu):
+            self.phase = RenderMainMenu(self.display)
+        elif isinstance(phase, CountDown)  and not isinstance(self.phase, RenderCountDown):
+            self.phase = RenderCountDown(self.display)
+        elif isinstance(phase, InGame)  and not isinstance(self.phase, RenderInGame):
+            self.phase = RenderInGame(self.display)
+        elif isinstance(phase, GameOver)  and not isinstance(self.phase, RenderGameOver):
+            self.phase = RenderGameOver(self.display)
         
     def render(self, phase: GamePhase):
         self.display.fill(0)
-        if isinstance(phase, MainMenu):
-            self.render_main_menu(phase)
-        elif isinstance(phase, CountDown):
-            self.render_count_down(phase)
-        elif isinstance(phase, InGame):
-            self.render_ingame(phase)
-        elif isinstance(phase, GameOver):
-            self.render_game_over(phase)
+        self.switch_render_phase_if_needed(phase)            
+        self.phase.render(phase)
         self.display.show()
 
 
