@@ -100,7 +100,7 @@ class InGame(GamePhase):
         self.upper_side = 0
         self.x : int = self.left_side
         self.y : int = self.upper_side
-        self.speed_increase_every: int = TICKS_PER_SECOND * 10
+        self.speed_increase_every: int = TICKS_PER_SECOND * 4
         self.tick_count: int = 0
         self.ball_bounce_count: int = 0
         self.last_rating: Rating = Rating.OK
@@ -108,7 +108,7 @@ class InGame(GamePhase):
         self.score: int = 0
         self.rating_direction: int = 1
         self.rating_count: int = 0
-        self.ticks_left: int = TICKS_PER_SECOND * 5
+        self.ticks_left: int = TICKS_PER_SECOND * 30
 
 
     def check_bounce_against_walls(self) -> None:
