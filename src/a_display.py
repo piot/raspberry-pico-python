@@ -49,8 +49,30 @@ class MainMenu(GamePhase):
 
 SCREEN_WIDTH = 128
 SCREEN_HEIGHT = 64
-BALL_SIZE = 16
+BALL_SIZE = 8
 WALL_SIZE = 1
+MIDDLE_X = 64
+
+
+class Rating():
+    ARE_YOU_SERIOUS = 0
+    TOO_EARLY = 1
+    OK = 2 
+    PERFECT = 3
+    AWESOME = 4
+    
+    @staticmethod
+    def str_value(rating_value):
+        rating_map = {
+            Rating.ARE_YOU_SERIOUS: "Are you SERIOUS?",
+            Rating.TOO_EARLY: "Too Early",
+            Rating.OK: "Ok, I take it",
+            Rating.PERFECT: "Perfect!",
+            Rating.AWESOME: "AWESOME!",
+        }
+        return rating_map.get(rating_value, str(rating_value))
+ 
+    
 
 class InGame(GamePhase):
     def __init__(self):
@@ -64,13 +86,17 @@ class InGame(GamePhase):
         self.upper_side = 0
         self.x : int = self.left_side
         self.y : int = self.upper_side
-        self.speed_increase_every: int = TICKS_PER_SECOND * 2
+        self.speed_increase_every: int = TICKS_PER_SECOND * 10
         self.tick_count: int = 0
+        self.ball_bounce_count: int = 0
+        self.last_rating: Rating = Rating.OK
+        self.last_points_given: int = 0
+        self.points: int = 0
+        self.rating_direction: int = 1
+        self.rating_count: int = 0
 
-        
-    def tick(self, button: Button):
-        self.tick_count += 1
-        
+
+    def check_bounce_against_walls(self) -> None:
         next_x: int = self.x + self.direction_x * self.speed
         if next_x >= self.right_side:
             self.direction_x = -1
@@ -88,19 +114,69 @@ class InGame(GamePhase):
             self.direction_y = 1
             next_y = self.upper_side
         self.y = next_y
+    
+    def distance_to_cloest_wall(self) -> int:
+        distance_to_left = self.x - self.left_side
+        distance_to_right = self.right_side - self.x
+        return min(distance_to_left, distance_to_right)
+
+    @staticmethod
+    def rating_from_distance_to_wall(distance: int) -> Rating:
+        if distance > 30:
+            return Rating.ARE_YOU_SERIOUS
+        elif distance > 15:
+            return Rating.TOO_EARLY
+        elif distance > 10:
+            return Rating.OK
+        elif distance > 5:
+            return Rating.PERFECT
+        return Rating.AWESOME
+
+    def ball_bounced_from_button_press(self):
+        self.direction_x = -self.direction_x
+        self.direction_y = -self.direction_y
+        self.ball_bounced()
+
+    def rate_button_press(self) -> None:
+        wall_distance = self.distance_to_cloest_wall()
+        points = 50 - wall_distance
+        self.last_points_given = points
+        self.points += points
+        self.last_rating = InGame.rating_from_distance_to_wall(wall_distance)
+        self.rating_count += 1
+        self.rating_direction = -1 if self.x <= MIDDLE_X else 1
+
+    def allowed_to_be_rated(self) -> bool:
+        return self.rating_direction == 0
+    
+    def button_went_down(self):
+        if self.allowed_to_be_rated():
+            self.rate_button_press()
+        else:
+            print("not allowed to be rated", self.x, self.rating_direction)
         
-            
-            
+    def check_if_allowed_to_be_rated_again(self):
+        if (self.rating_direction > 0 and self.x <= MIDDLE_X) or (self.rating_direction < 0 and self.x > MIDDLE_X):
+            self.rating_direction = 0
+        
+    def check_if_speed_should_increase(self):
         if self.tick_count % self.speed_increase_every == 0:
             self.speed += 1
             
-            
+    def check_if_button_is_pressed(self):
         button_is_pressed_now = button.is_pressed()
-        
         if button_is_pressed_now and not self.button_was_down_last_tick:
-            print("button went down")
-            
+            self.button_went_down()
         self.button_was_down_last_tick = button_is_pressed_now
+
+    def tick(self, button: Button):
+        self.tick_count += 1
+        
+        self.check_bounce_against_walls()
+        self.check_if_allowed_to_be_rated_again()
+        self.check_if_speed_should_increase()            
+        self.check_if_button_is_pressed()
+
 
 class CountDown(GamePhase):
     def __init__(self, count_down: int):
@@ -122,7 +198,7 @@ class Game:
     def switch_phase(self) -> GamePhase:
         phase: GamePhase = self.phase
         if isinstance(phase, MainMenu):
-            return CountDown(120)
+            return CountDown(10)
         elif isinstance(phase, CountDown):
             return InGame()
         elif isinstance(phase, InGame):
@@ -139,6 +215,8 @@ class Game:
 class Render:
     def __init__(self, display: SH1106_I2C):
         self.display = display
+        self.last_shown_rating_count: int = 0
+        self.show_rating_timer: int = 0
         
     def render_main_menu(self, main: MainMenu):
         self.display.text('Main Menu', 0, 32, 1)
@@ -147,8 +225,23 @@ class Render:
         self.display.text('Get Ready!', 0, 32, 1)
         self.display.text(str(ticks_to_seconds(count_down.count_down)), 0, 48, 1)
     
+    def render_rating(self, rating: Rating, points_given: int):
+        self.display.text(Rating.str_value(rating), 0, 15, 1)
+        self.display.text("bonus:" + str(points_given), 0, 32, 1)
+        
+    def render_score(self, points_total: int) -> None:
+        self.display.text("total:" + str(points_total), 0, 48, 1)
+
     def render_ingame(self, ingame: InGame):
         #self.display.text('Hello World!', 128 - ingame.x, 32, 1)
+        if self.last_shown_rating_count != ingame.rating_count:
+            self.show_rating_timer = TICKS_PER_SECOND * 0.5
+            self.last_shown_rating_count = ingame.rating_count
+            
+        if self.show_rating_timer > 0:
+            self.show_rating_timer -= 1
+            self.render_rating(ingame.last_rating, ingame.last_points_given)
+        self.render_score(ingame.points)
         
         self.display.vline(0, 0, 64, 1)
         self.display.vline(127, 0, 64, 1)
