@@ -130,7 +130,7 @@ class RGBLed:
 
 class Rating:
     ARE_YOU_SERIOUS = 0
-    TOO_EARLY = 1
+    NOT_CLOSE = 1
     OK = 2
     PERFECT = 3
     AWESOME = 4
@@ -139,7 +139,7 @@ class Rating:
     def str_value(rating_value):
         rating_map = {
             Rating.ARE_YOU_SERIOUS: "Are you SERIOUS?",
-            Rating.TOO_EARLY: "Too Early",
+            Rating.NOT_CLOSE: "Not even close",
             Rating.OK: "Ok, I take it",
             Rating.PERFECT: "Perfect!",
             Rating.AWESOME: "AWESOME!",
@@ -186,15 +186,13 @@ class InGame(GamePhase):
         self.upper_side = 0
         self.x: int = self.left_side
         self.y: int = self.upper_side
-        self.speed_increase_every: int = TICKS_PER_SECOND * 4
-        self.tick_count: int = 0
-        self.ball_bounce_count: int = 0
+        self.speed_increase_every: int = TICKS_PER_SECOND * 3
         self.last_rating: Rating = Rating.OK
         self.last_bonus_given: int = 0
         self.score: int = 0
         self.rating_direction: int = 1
         self.rating_count: int = 0
-        self.ticks_left: int = TICKS_PER_SECOND * 30
+        self.ticks_left: int = TICKS_PER_SECOND * 20
 
     def check_bounce_against_walls(self) -> None:
         next_x: int = self.x + self.direction_x * self.speed
@@ -222,10 +220,10 @@ class InGame(GamePhase):
 
     @staticmethod
     def rating_from_distance_to_wall(distance: int) -> Rating:
-        if distance > 30:
+        if distance > 25:
             return Rating.ARE_YOU_SERIOUS
-        elif distance > 15:
-            return Rating.TOO_EARLY
+        elif distance > 20:
+            return Rating.NOT_CLOSE
         elif distance > 10:
             return Rating.OK
         elif distance > 5:
@@ -239,7 +237,9 @@ class InGame(GamePhase):
 
     def rate_button_press(self) -> None:
         wall_distance = self.distance_to_cloest_wall()
-        score = 50 - wall_distance
+        score: int = round(MIDDLE_X / 2 - wall_distance)
+        if score > 0:
+            score = round(score ** 1.5 / 8)
         self.last_bonus_given = score
         self.score += score
         self.last_rating = InGame.rating_from_distance_to_wall(wall_distance)
@@ -262,7 +262,7 @@ class InGame(GamePhase):
             self.rating_direction = 0
 
     def check_if_speed_should_increase(self):
-        if self.tick_count % self.speed_increase_every == 0:
+        if self.ticks_left % self.speed_increase_every == 0:
             self.speed += 1
 
     def check_if_button_is_pressed(self):
@@ -272,7 +272,6 @@ class InGame(GamePhase):
         self.button_was_down_last_tick = button_is_pressed_now
 
     def tick(self, button: Button):
-        self.tick_count += 1
         if self.ticks_left == 0:
             return True
         self.ticks_left -= 1
@@ -287,7 +286,7 @@ class GameOver(GamePhase):
     def __init__(self, score: int):
         self.score = score
         self.was_pressed = True
-        self.ticks_left: int = TICKS_PER_SECOND * 2
+        self.ticks_left: int = TICKS_PER_SECOND * 1
 
     def tick(self, button: Button):
         if self.ticks_left == 0:
@@ -307,7 +306,7 @@ class Game:
     def switch_phase(self) -> GamePhase:
         phase: GamePhase = self.phase
         if isinstance(phase, MainMenu):
-            return CountDown(TICKS_PER_SECOND * 3)
+            return CountDown(TICKS_PER_SECOND * 2)
         elif isinstance(phase, CountDown):
             return InGame()
         elif isinstance(phase, InGame):
@@ -351,7 +350,7 @@ class RenderInGame(RenderPhase):
     def set_led_color_from_rating(self, rating: Rating):
         if rating == Rating.ARE_YOU_SERIOUS:
             color = (1, 0.1, 0.1)
-        elif rating == Rating.TOO_EARLY:
+        elif rating == Rating.NOT_CLOSE:
             color = (0.5, 0.3, 0.3)
         elif rating == Rating.OK:
             color = (0.4,0.4,0.1)
@@ -390,7 +389,7 @@ class RenderInGame(RenderPhase):
 
 class RenderMainMenu(RenderPhase):
     def render(self, main: MainMenu):
-        self.display.text("Main Menu", 30, 0, 1)
+        self.display.text("Reaction Game", 15, 20, 1)
         self.display.text("press button", 12, 52, 1)
 
 
