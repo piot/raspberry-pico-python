@@ -1,9 +1,10 @@
 import machine
 
-from machine import Pin, I2C
+from machine import Pin, I2C, PWM
 
 import sh1106
 import math
+import time
 
 TICKS_PER_SECOND: int = 30
 
@@ -27,11 +28,6 @@ def scan(i2c: I2C):
         print("No device found")
 
 
-def initialize_button() -> Button:
-    pin: Pin = Pin(13, Pin.IN, Pin.PULL_UP)
-    return Button(pin)
-
-
 class Button:
     def __init__(self, pin: Pin):
         self.pin = pin
@@ -47,6 +43,24 @@ BALL_SIZE = 8
 WALL_SIZE = 1
 MIDDLE_X = 64
 
+class RGBLed:
+    def __init__(self, red: Pin, green: Pin, blue: Pin):
+        self.red_pwm = RGBLed.setup_pwm(red)
+        self.green_pwm = RGBLed.setup_pwm(green)
+        self.blue_pwm = RGBLed.setup_pwm(blue)
+        self.set_color(0,0,0)
+    
+    @staticmethod
+    def setup_pwm(pin: Pin) -> PWM:
+        RGB_FREQUENCY = 10000
+        pwm = PWM(pin)
+        pwm.freq(RGB_FREQUENCY)
+        return pwm
+    
+    def set_color(self, red: int, green: int, blue: int):
+        self.red_pwm.duty_u16(65535 - red)
+        self.green_pwm.duty_u16(65535 - green)
+        self.blue_pwm.duty_u16(65535 - blue)
 
 class Rating:
     ARE_YOU_SERIOUS = 0
@@ -330,10 +344,8 @@ class Render:
         self.display.show()
 
 
-def initialize_i2c() -> I2C:
-    sdaPIN = Pin(2)
-    sclPIN = Pin(3)
-    i2c = I2C(1, sda=sdaPIN, scl=sclPIN, freq=400000)
+def initialize_i2c(sda_pin: Pin, scl_pin: Pin) -> I2C:
+    i2c = I2C(1, sda=sda_pin, scl=scl_pin, freq=400000)
     return i2c
 
 
@@ -343,16 +355,47 @@ def initialize_display() -> SH1106_I2C:
     return display
 
 
-i2c: I2C = initialize_i2c()
+# All pins used on the board
+i2c_sda_pin = Pin(2)
+i2c_scl_pin = Pin(3)
+rgb_led_red_pin = Pin(12)
+rgb_led_green_pin = Pin(11)
+rgb_led_blue_pin = Pin(10)
+button_pin = Pin(13, Pin.IN, Pin.PULL_UP)
+speaker_pin = Pin(15)
+
+# --------------------------
+
+i2c: I2C = initialize_i2c(i2c_sda_pin, i2c_scl_pin)
 
 display: SH1106_I2C = initialize_display()
 
-button: Button = initialize_button()
+button = Button(button_pin)
+
+rgb_led = RGBLed(rgb_led_red_pin, rgb_led_green_pin, rgb_led_blue_pin)
 
 scan(i2c)
 
 game: Game = Game()
 render: Render = Render(display)
+
+passive_buzzer = PWM(speaker_pin)
+passive_buzzer.freq(220)
+passive_buzzer.duty_u16(400)
+
+rgb_led.set_color(65535, 0, 0)
+time.sleep_ms(1500)
+
+rgb_led.set_color(0, 65535, 0)
+passive_buzzer.freq(330)
+time.sleep_ms(1000)
+
+rgb_led.set_color(0, 0, 65535)
+passive_buzzer.freq(880)
+time.sleep_ms(1000)
+passive_buzzer.duty_u16(0)
+
+rgb_led.set_color(0, 0, 0)
 
 while not game.is_over:
     game.tick(button)
