@@ -43,12 +43,69 @@ BALL_SIZE = 8
 WALL_SIZE = 1
 MIDDLE_X = 64
 
+class NoteAndDuration:
+    def __init__(self, note, duration: int):
+        self.note = note
+        self.duration = duration
+
+class TonePlayer:
+    def __init__(self, speaker: Speaker):
+        self.time: int = 0
+        self.index: int = 0
+        self.speaker = speaker
+        
+    @staticmethod
+    def note_to_frequency(note) -> int:
+        notes = {'C': -9, 'C#': -8, 'D': -7, 'D#': -6, 'E': -5, 'F': -4, 'F#': -3, 'G': -2, 'G#': -1, 'A': 0, 'A#': 1, 'B': 2}
+        octave = int(note[-1])
+        note_name = note[:-1]
+        half_steps = (octave - 4) * 12 + notes[note_name]
+        return round(440 * 2 ** (half_steps / 12))
+    
+    def play(self, notes_and_duration: List[NoteAndDuration]):
+        self.notes_and_duration = notes_and_duration
+        self.time = 0
+        self.index = 0
+        
+    def tick(self):
+        if self.current_note is not None:
+            self.time += 1
+            if self.time > self.current_note.duration * 8:
+                self.current_note = None
+                self.pause_between_notes = 2
+            else:
+                self.index += 1
+        else:
+            if self.pause_between_notes != 0:
+                self.pause_between_notes -= 1
+            else:
+                if self.index >= len(self.notes_and_duration):
+                    self.index = -1
+                else:
+                    self.current_note, self.current_duration = self.notes_and_duration[self.index]
+                    print("playing note:", self.current_note, "duration", duration)
+                    frequency = TonePlayer.note_to_frequency(self.current_note)
+                    self.speaker.play(frequency)
+                    self.index+= 1
+                    self.time = 0
+                
+                
+class Speaker:
+    def __init__(self, speaker_pin: Pin):
+        self.speaker_pwm = PWM(speaker_pin)
+        self.speaker_pwm.freq(300)
+        self.speaker_pwm.duty_u16(100) # very low volume
+        
+    def play(frequency: int):
+        self.speaker_pwm.freq(frequency)
+
+
 class RGBLed:
     def __init__(self, red: Pin, green: Pin, blue: Pin):
         self.red_pwm = RGBLed.setup_pwm(red)
         self.green_pwm = RGBLed.setup_pwm(green)
         self.blue_pwm = RGBLed.setup_pwm(blue)
-        self.set_color(0,0,0)
+        self.turn_off()
     
     @staticmethod
     def setup_pwm(pin: Pin) -> PWM:
@@ -57,10 +114,19 @@ class RGBLed:
         pwm.freq(RGB_FREQUENCY)
         return pwm
     
-    def set_color(self, red: int, green: int, blue: int):
+    def set_values(self, red: int, green: int, blue: int):
         self.red_pwm.duty_u16(65535 - red)
         self.green_pwm.duty_u16(65535 - green)
         self.blue_pwm.duty_u16(65535 - blue)
+        
+    def set_color(self, colors: Tuple[float, float, float]) -> None:
+        red = round(colors[0] * 65535)
+        green = round(colors[1] * 65535)
+        blue = round(colors[2] * 65535)
+        self.set_values(red, green, blue)
+        
+    def turn_off(self) -> None:
+        self.set_values(0,0,0)
 
 class Rating:
     ARE_YOU_SERIOUS = 0
@@ -258,7 +324,7 @@ class Game:
 
 
 class RenderPhase:
-    def __init__(self, display: SH1106_I2C):
+    def __init__(self, display: SH1106_I2C, rgb_led: RGBLed=None):
         self.display = display
 
     def tick(self, button: Button) -> Bool:
@@ -266,8 +332,9 @@ class RenderPhase:
 
 
 class RenderInGame(RenderPhase):
-    def __init__(self, display: SH1106_I2C):
+    def __init__(self, display: SH1106_I2C, rgb_led: RGBLed):
         self.display = display
+        self.rgb_led = rgb_led
         self.last_shown_rating_count: int = 0
         self.show_rating_timer: int = 0
 
@@ -280,16 +347,34 @@ class RenderInGame(RenderPhase):
 
     def render_ticks_left(self, ticks: int) -> None:
         self.display.text("Time Left " + str(ticks), 10, 38, 1)
+        
+    def set_led_color_from_rating(self, rating: Rating):
+        if rating == Rating.ARE_YOU_SERIOUS:
+            color = (1, 0.1, 0.1)
+        elif rating == Rating.TOO_EARLY:
+            color = (0.5, 0.3, 0.3)
+        elif rating == Rating.OK:
+            color = (0.4,0.4,0.1)
+        elif rating == Rating.PERFECT:
+            color = (0.1,0.5,0.1)
+        elif rating == Rating.AWESOME:
+            color = (0.1, 1, 0.1)
+            
+        self.rgb_led.set_color(color)
 
     def render(self, ingame: InGame):
         # self.display.text('Hello World!', 128 - ingame.x, 32, 1)
         if self.last_shown_rating_count != ingame.rating_count:
             self.show_rating_timer = TICKS_PER_SECOND * 0.5
             self.last_shown_rating_count = ingame.rating_count
+            self.set_led_color_from_rating(ingame.last_rating)
 
         if self.show_rating_timer > 0:
             self.show_rating_timer -= 1
+            if self.show_rating_timer == 0:
+                self.rgb_led.turn_off()
             self.render_rating(ingame.last_rating, ingame.last_bonus_given)
+            
         self.render_score(ingame.score)
 
         if ingame.ticks_left < 100:
@@ -298,6 +383,9 @@ class RenderInGame(RenderPhase):
         self.display.vline(0, 0, 64, 1)
         self.display.vline(127, 0, 64, 1)
         self.display.fill_rect(ingame.x, ingame.y, BALL_SIZE, BALL_SIZE, 1)
+        
+    def close(self):
+        self.rgb_led.turn_off()
 
 
 class RenderMainMenu(RenderPhase):
@@ -321,20 +409,20 @@ class RenderCountDown(RenderPhase):
 
 
 class Render:
-    def __init__(self, display: SH1106_I2C):
+    def __init__(self, display: SH1106_I2C, rgb_led: RGBLed):
         self.display = display
+        self.rgb_led = rgb_led
         self.phase: RenderPhase = None
 
     def switch_render_phase_if_needed(self, phase: GamePhase):
         if isinstance(phase, MainMenu) and not isinstance(self.phase, RenderMainMenu):
             self.phase = RenderMainMenu(self.display)
-        elif isinstance(phase, CountDown) and not isinstance(
-            self.phase, RenderCountDown
-        ):
+        elif isinstance(phase, CountDown) and not isinstance(self.phase, RenderCountDown):
             self.phase = RenderCountDown(self.display)
         elif isinstance(phase, InGame) and not isinstance(self.phase, RenderInGame):
-            self.phase = RenderInGame(self.display)
+            self.phase = RenderInGame(self.display, self.rgb_led)
         elif isinstance(phase, GameOver) and not isinstance(self.phase, RenderGameOver):
+            self.phase.close()
             self.phase = RenderGameOver(self.display)
 
     def render(self, phase: GamePhase):
@@ -362,7 +450,7 @@ rgb_led_red_pin = Pin(12)
 rgb_led_green_pin = Pin(11)
 rgb_led_blue_pin = Pin(10)
 button_pin = Pin(13, Pin.IN, Pin.PULL_UP)
-speaker_pin = Pin(15)
+#speaker_pin = Pin(15)
 
 # --------------------------
 
@@ -377,25 +465,13 @@ rgb_led = RGBLed(rgb_led_red_pin, rgb_led_green_pin, rgb_led_blue_pin)
 scan(i2c)
 
 game: Game = Game()
-render: Render = Render(display)
+render: Render = Render(display, rgb_led)
 
-passive_buzzer = PWM(speaker_pin)
-passive_buzzer.freq(220)
-passive_buzzer.duty_u16(400)
-
-rgb_led.set_color(65535, 0, 0)
-time.sleep_ms(1500)
-
-rgb_led.set_color(0, 65535, 0)
-passive_buzzer.freq(330)
-time.sleep_ms(1000)
-
-rgb_led.set_color(0, 0, 65535)
-passive_buzzer.freq(880)
-time.sleep_ms(1000)
-passive_buzzer.duty_u16(0)
-
-rgb_led.set_color(0, 0, 0)
+notes_and_durations = [
+    ('C4', 4),
+    ('E4', 2),
+    ('G4', 2),
+]
 
 while not game.is_over:
     game.tick(button)
