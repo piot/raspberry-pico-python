@@ -388,9 +388,9 @@ def initialize_display() -> SH1106_I2C:
 # All pins used on the board. I2C is for the display
 i2c_sda_pin = Pin(2)
 i2c_scl_pin = Pin(3)
-rgb_led_red_pin = Pin(12)
+rgb_led_red_pin = Pin(10)
 rgb_led_green_pin = Pin(11)
-rgb_led_blue_pin = Pin(10)
+rgb_led_blue_pin = Pin(12)
 button_pin = Pin(13, Pin.IN, Pin.PULL_UP)
 # --------------------------
 
